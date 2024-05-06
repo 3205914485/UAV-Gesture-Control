@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat, reduce
 
+
 class SingleFrameSelector(nn.Module):
     r"""
         Args:
@@ -13,22 +14,21 @@ class SingleFrameSelector(nn.Module):
 
         Outputs: 
         """
-    
+
     def __init__(self, num_features: int):
         super(SingleFrameSelector, self).__init__()
-        
+
         # Define a simple MLP with 2 layers
         self.fc1 = nn.Linear(num_features, num_features // 2)
         # Output one score per frame, thus the second parameter is 1
         self.fc2 = nn.Linear(num_features // 2, 1)
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         r"""
         Args:
             x (torch.Tensor): The input tensor of shape (batch_size, seq_len, num_features)
                               representing feature vectors of frames.
-        
+
         Returns:
             torch.Tensor: The output tensor of shape (batch_size, seq_len)
                           representing the contribution score for each frame.
@@ -45,7 +45,6 @@ class SingleFrameSelector(nn.Module):
         return x
 
     def get_frame_importance(self, x: torch.Tensor) -> torch.Tensor:
-
         r"""
         Computes the importance score of each frame based on the confidence
         of the ground truth class.
@@ -53,7 +52,7 @@ class SingleFrameSelector(nn.Module):
         Args:
             x (torch.Tensor): The input tensor of shape (batch_size, num_features)
                               representing feature vectors of frames.
-        
+
         Returns:
             torch.Tensor: The importance score of each frame, of shape (batch_size,)
         """

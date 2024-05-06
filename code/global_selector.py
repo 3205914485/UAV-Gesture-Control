@@ -85,7 +85,8 @@ class GlobalSelector(nn.Module):
             reduce(alpha, 'b s 1 -> b 1', 'sum')
         beta = self.sigmoid(self.spatial_linear(
             torch.cat((rearrange(x, 'b s f -> (b s) f'), repeat(global_x1, 'b f -> (b s) f', s=seq_len)), dim=1)))
-        omega = torch.einsum('b s f, b s 1 -> b s f', x, torch.cumsum(beta, dim=1))
+        omega = torch.einsum('b s f, b s 1 -> b s f', x,
+                             torch.cumsum(beta, dim=1))
 
         h0 = torch.zeros((self.lstm_layers, batch_size, num_features))
         c0 = torch.zeros((self.lstm_layers, batch_size, num_features))
@@ -97,10 +98,10 @@ class GlobalSelector(nn.Module):
                                  lamda) / reduce(lamda, 'b f 1 -> b 1', 'sum')
         gamma = self.sigmoid(self.temporal_linear(
             torch.cat((rearrange(omega, 'b s f -> (b s) f'), repeat(global_x2, 'b f -> (b s) f', s=seq_len)), dim=1)))
-        c = torch.einsum('b s f, b s 1 -> b s f', h, torch.cumsum(gamma, dim=1))
+        c = torch.einsum('b s f, b s 1 -> b s f', h,
+                         torch.cumsum(gamma, dim=1))
         out = self.classifier(rearrange(c, 'b s f -> (b s) f'))
         return rearrange(out, '(b s) num_classes -> b s num_classes', b=batch_size)
-
 
     def get_frame_importance(self, x: Tensor) -> Tensor:
         r"""
