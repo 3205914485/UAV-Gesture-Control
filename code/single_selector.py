@@ -59,3 +59,14 @@ class SingleFrameSelector(nn.Module):
         """
         confidences = self.forward(x)
         return confidences
+
+def load_singleframeselector(model_path,
+                             num_features,
+                             eval=True,
+                             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                             ):
+    model=SingleFrameSelector(num_features=num_features).to(device)
+    model.load_state_dict(torch.load(model_path))
+    if eval:
+        model.eval()
+    return model

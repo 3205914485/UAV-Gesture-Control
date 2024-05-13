@@ -141,3 +141,14 @@ class GlobalSelector(nn.Module):
 # model = GlobalSelector(20, 2, 2)
 # x = torch.randn((16, 10, 20))
 # print(model.einops_forward(x).shape)
+def load_globalselector(model_path,
+                        num_features,
+                        num_classes,
+                        eval=True,
+                        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        ):
+    model=GlobalSelector(num_features=num_features,num_classes=num_classes).to(device)
+    model.load_state_dict(torch.load(model_path))
+    if eval:
+        model.eval()
+    return model
