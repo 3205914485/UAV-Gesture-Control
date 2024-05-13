@@ -34,7 +34,8 @@ class MyDataSet(Dataset):
         img = Image.open(self.images_path[item])
         # RGB为彩色图片，L为灰度图片
         if img.mode != 'RGB':
-            raise ValueError("image: {} isn't RGB mode.".format(self.images_path[item]))
+            raise ValueError("image: {} isn't RGB mode.".format(
+                self.images_path[item]))
         label = self.images_class[item]
 
         if self.transform is not None:
@@ -51,6 +52,8 @@ class MyDataSet(Dataset):
         images = torch.stack(images, dim=0)
         labels = torch.as_tensor(labels)
         return images, labels
+
+
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     """
     Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
@@ -62,8 +65,10 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
     keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
-    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    # work with diff dim tensors, not just 2D ConvNets
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = keep_prob + \
+        torch.rand(shape, dtype=x.dtype, device=x.device)
     random_tensor.floor_()  # binarize
     output = x.div(keep_prob) * random_tensor
     return output
@@ -74,6 +79,7 @@ class DropPath(nn.Module):
     Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
     "Deep Networks with Stochastic Depth", https://arxiv.org/pdf/1603.09382.pdf
     """
+
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
@@ -177,7 +183,8 @@ class MBConv(nn.Module):
                                 norm_layer=norm_layer,
                                 activation_layer=activation_layer)
 
-        self.se = SqueezeExcite(input_c, expanded_c, se_ratio) if se_ratio > 0 else nn.Identity()
+        self.se = SqueezeExcite(input_c, expanded_c,
+                                se_ratio) if se_ratio > 0 else nn.Identity()
 
         # Point-wise linear projection
         self.project_conv = ConvBNAct(expanded_c,
@@ -418,20 +425,20 @@ def efficientnetv2_l(num_classes: int = 1000):
                            num_classes=num_classes,
                            dropout_rate=0.4)
     return model
-    
 
-def change_lr(net, lr, gamma = 0.8):
+
+def change_lr(net, lr, gamma=0.8):
     if lr >= 0.0000001:
         lr = gamma * lr
-    return lr, optim.Adam(net.parameters(), lr = lr, weight_decay = 0.0001)
-    
-        
+    return lr, optim.Adam(net.parameters(), lr=lr, weight_decay=0.0001)
+
 
 def main(args):
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(args)
 
-    train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(args.data_path)
+    train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(
+        args.data_path)
 
     img_size = {"s": [300, 384],  # train_size, val_size
                 "m": [384, 480],
@@ -444,7 +451,8 @@ def main(args):
                                      transforms.ToTensor(),
                                      transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])]),
         "val": transforms.Compose([transforms.Resize(img_size[num_model][1]),
-                                   transforms.CenterCrop(img_size[num_model][1]),
+                                   transforms.CenterCrop(
+                                       img_size[num_model][1]),
                                    transforms.ToTensor(),
                                    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])}
 
@@ -461,21 +469,20 @@ def main(args):
     train_steps = len(train_dataset)
     val_num = len(val_dataset)
 
-    
     batch_size = args.batch_size
-    #nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    # nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
                                                pin_memory=True,
-                                               num_workers=0,
+                                               num_workers=20,
                                                collate_fn=train_dataset.collate_fn)
 
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=batch_size,
                                              shuffle=False,
                                              pin_memory=True,
-                                             num_workers=0,
+                                             num_workers=20,
                                              collate_fn=val_dataset.collate_fn)
 
     # 如果存在预训练权重则载入
@@ -487,9 +494,9 @@ def main(args):
                                  if net.state_dict()[k].numel() == v.numel()}
             print(net.load_state_dict(load_weights_dict, strict=False))
         else:
-            raise FileNotFoundError("not found weights file: {}".format(args.weights))
+            raise FileNotFoundError(
+                "not found weights file: {}".format(args.weights))
 
-    
     # 是否冻结权重
     if args.freeze_layers:
         for name, para in net.named_parameters():
@@ -498,19 +505,19 @@ def main(args):
                 para.requires_grad_(False)
             else:
                 print("training {}".format(name))
-    
 
     pg = [p for p in net.parameters() if p.requires_grad]
     optimizer = optim.SGD(pg, lr=args.lr, momentum=0.9, weight_decay=1E-3)
     # Scheduler https://arxiv.org/pdf/1812.01187.pdf
-    lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf  # cosine
+    def lf(x): return ((1 + math.cos(x * math.pi / args.epochs)) / 2) * \
+        (1 - args.lrf) + args.lrf  # cosine
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
-    
+
     save_path = "single_frame_selection_video_em.pth"
     epochs = args.epochs
     loss_function = nn.CrossEntropyLoss()
     best_acc = 0.9066
-                       
+
     for epoch in range(epochs):
         # train
         net.train()
@@ -519,16 +526,17 @@ def main(args):
         for step, data in enumerate(train_bar):
             images, labels = data
             optimizer.zero_grad()
-            
+
             p = net(images.to(device))
             loss = loss_function(p, labels.to(device))
-            
+
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
 
-            train_bar.desc = "train epoch[{}/{}] loss:{:.4f}".format(epoch + 1, epochs, loss)
+            train_bar.desc = "train epoch[{}/{}] loss:{:.4f}".format(
+                epoch + 1, epochs, loss)
 
         scheduler.step()
         # validate
@@ -552,17 +560,17 @@ def main(args):
             best_acc = val_accurate
             torch.save(net.state_dict(), save_path)
             print("  Parameters have been stored")
-            
 
     print('Finished Training')
 
-    
+
 def score(args):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(args)
 
-    train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(args.data_path)
+    train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(
+        args.data_path)
 
     img_size = {"s": [300, 384],  # train_size, val_size
                 "m": [384, 480],
@@ -570,10 +578,10 @@ def score(args):
     num_model = "s"
 
     data_transform = transforms.Compose([transforms.Resize(img_size[num_model][1]),
-                                   transforms.CenterCrop(img_size[num_model][1]),
-                                   transforms.ToTensor(),
-                                   transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-
+                                         transforms.CenterCrop(
+                                             img_size[num_model][1]),
+                                         transforms.ToTensor(),
+                                         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
 
     # 实例化验证数据集
     val_dataset = MyDataSet(images_path=val_images_path,
@@ -586,15 +594,14 @@ def score(args):
                                              batch_size=args.batch_size,
                                              shuffle=False,
                                              num_workers=0)
-                                             
 
     # 如果存在预训练权重则载入
     net = efficientnetv2_s(num_classes=args.num_classes).to(device)
     net.load_state_dict(torch.load(args.weights, map_location=device))
-    
-    acc = 0.0  # accumulate accurate number / epoch  
+
+    acc = 0.0  # accumulate accurate number / epoch
     sigmoid = nn.Sigmoid()
-    scores=[]
+    scores = []
     net.eval()
     with torch.no_grad():
         bar = tqdm(val_loader)
@@ -604,41 +611,42 @@ def score(args):
             predict_y = torch.max(outputs, dim=1)[1]
             acc += torch.eq(predict_y, labels.to(device)).sum().item()
             i = 0
-            for pre in outputs:  
+            for pre in outputs:
                 score = pre[labels[i]]
-                scores.append(round(score.item(), 5))#保留小数点后5位
+                scores.append(round(score.item(), 5))  # 保留小数点后5位
                 i += 1
-        accurate = acc / val_num 
+        accurate = acc / val_num
     print('accuracy on these frames: %.4f' % (accurate))
 
-    #scroces是一维的，因为没有打乱顺序，所以顺序上是一一对应的
+    # scroces是一维的，因为没有打乱顺序，所以顺序上是一一对应的
     return scores
-    
+
 
 if __name__ == '__main__':
-    #是否预训练
-    pretrain = False
+    # 是否预训练
+    pretrain = True
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_classes', type=int, default=10)
-    parser.add_argument('--epochs', type=int, default=30)
-    parser.add_argument('--batch-size', type=int, default=30)
+    parser.add_argument('--num_classes', type=int, default=101)
+    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--lrf', type=float, default=0.01)
 
     # 数据集所在根目录
     # http://download.tensorflow.org/example_images/flower_photos.tgz
     parser.add_argument('--data-path', type=str,
-                        default="./UCF-101-frame")
+                        default="./data/ucf_101_frame")
     # download model weights
     # 链接: https://pan.baidu.com/s/1uZX36rvrfEss-JGj4yfzbQ  密码: 5gu1
-    parser.add_argument('--weights', type=str, default='./single_frame_selection_video_em.pth',
-                      help='initial weights path')
+    parser.add_argument('--weights', type=str, default='./saved_model/torch_efficientnetv2/pre_efficientnetv2-s.pth',
+                        help='initial weights path')
     parser.add_argument('--freeze-layers', type=bool, default=True)
-    parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
+    parser.add_argument('--device', default='cuda:7',
+                        help='device id (i.e. 0 or 0,1 or cpu)')
     opt = parser.parse_args(args=[])
-    
+
     if pretrain:
         main(opt)
-        
+
     else:
         scores = score(opt)
