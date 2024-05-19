@@ -2,13 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from typing import List, Optional, Tuple, Union
 from utils import generate_frame_pairs
 from einops import rearrange, repeat, reduce
-from torchvision.models import MobileNet_V2_Weights
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-from PIL import Image
 import argparse
 import json
 from tqdm import tqdm
@@ -89,27 +86,31 @@ class GlobalSelector(nn.Module):
         alpha = self.sigmoid(self.attention_linear1(
             rearrange(x, 'b s f -> (b s) f')))
         alpha = rearrange(alpha, '(b s) 1 -> b s 1', b=batch_size)
-        global_x1 = torch.einsum('b s f, b s 1 -> b f', x, alpha) / \
+        global_x1 = torch.einsum('b s f, b s o -> b f', x, alpha) / \
             reduce(alpha, 'b s 1 -> b 1', 'sum')
         beta = self.sigmoid(self.spatial_linear(
             torch.cat((rearrange(x, 'b s f -> (b s) f'), repeat(global_x1, 'b f -> (b s) f', s=seq_len)), dim=1)))
-        omega = torch.einsum('b s f, b s 1 -> b s f', x,
+        beta = rearrange(beta, '(b s) 1 -> b s 1', b=batch_size)
+        omega = torch.einsum('b s f, b s o -> b s f', x,
                              torch.cumsum(beta, dim=1))
 
-        h0 = torch.zeros((self.lstm_layers, batch_size, num_features))
-        c0 = torch.zeros((self.lstm_layers, batch_size, num_features))
+        h0 = torch.zeros((self.lstm_layers, batch_size,
+                         num_features)).to(x.device)
+        c0 = torch.zeros((self.lstm_layers, batch_size,
+                         num_features)).to(x.device)
         h, (hn, cn) = self.lstm(omega, (h0, c0))
         lamda = self.attention_linear2(rearrange(h, 'b s f -> (b s) f'))
         lamda = F.softmax(
             rearrange(lamda, '(b s) 1 -> b s 1', b=batch_size), dim=1)
-        global_x2 = torch.einsum('b s f, b s 1 -> b f', omega,
+        global_x2 = torch.einsum('b s f, b s o -> b f', omega,
                                  lamda) / reduce(lamda, 'b f 1 -> b 1', 'sum')
         gamma = self.sigmoid(self.temporal_linear(
             torch.cat((rearrange(omega, 'b s f -> (b s) f'), repeat(global_x2, 'b f -> (b s) f', s=seq_len)), dim=1)))
-        c = torch.einsum('b s f, b s 1 -> b s f', h,
+        gamma = rearrange(gamma, '(b s) 1 -> b s 1', b=batch_size)
+        c = torch.einsum('b s f, b s o -> b s f', h,
                          torch.cumsum(gamma, dim=1))
         out = self.classifier(rearrange(c, 'b s f -> (b s) f'))
-        return rearrange(out, '(b s) num_classes -> b s num_classes', b=batch_size)
+        return rearrange(out, '(b s) num_classes -> b num_classes s', b=batch_size)
 
     def get_frame_importance(self, x: Tensor) -> Tensor:
         r"""
@@ -123,23 +124,27 @@ class GlobalSelector(nn.Module):
         alpha = self.sigmoid(self.attention_linear1(
             rearrange(x, 'b s f -> (b s) f')))
         alpha = rearrange(alpha, '(b s) 1 -> b s 1', b=batch_size)
-        global_x1 = torch.einsum('b s f, b s 1 -> b f', x, alpha) / \
+        global_x1 = torch.einsum('b s f, b s o -> b f', x, alpha) / \
             reduce(alpha, 'b s 1 -> b 1', 'sum')
         beta = self.sigmoid(self.spatial_linear(
             torch.cat((rearrange(x, 'b s f -> (b s) f'), repeat(global_x1, 'b f -> (b s) f', s=seq_len)), dim=1)))
-        omega = torch.einsum('b s f, b s 1 -> b s f', x,
+        beta = rearrange(beta, '(b s) 1 -> b s 1', b=batch_size)
+        omega = torch.einsum('b s f, b s o -> b s f', x,
                              torch.cumsum(beta, dim=1))
 
-        h0 = torch.zeros((self.lstm_layers, batch_size, num_features))
-        c0 = torch.zeros((self.lstm_layers, batch_size, num_features))
+        h0 = torch.zeros((self.lstm_layers, batch_size,
+                         num_features)).to(x.device)
+        c0 = torch.zeros((self.lstm_layers, batch_size,
+                         num_features)).to(x.device)
         h, (hn, cn) = self.lstm(omega, (h0, c0))
         lamda = self.attention_linear2(rearrange(h, 'b s f -> (b s) f'))
         lamda = F.softmax(
             rearrange(lamda, '(b s) 1 -> b s 1', b=batch_size), dim=1)
-        global_x2 = torch.einsum('b s f, b s 1 -> b f', omega,
+        global_x2 = torch.einsum('b s f, b s o -> b f', omega,
                                  lamda) / reduce(lamda, 'b f 1 -> b 1', 'sum')
         gamma = self.sigmoid(self.temporal_linear(
             torch.cat((rearrange(omega, 'b s f -> (b s) f'), repeat(global_x2, 'b f -> (b s) f', s=seq_len)), dim=1)))
+        gamma = rearrange(gamma, '(b s) 1 -> b s 1', b=batch_size)
         return gamma
 
 
@@ -160,7 +165,7 @@ def load_global_selector(model_path,
 
 class MyDataSet(Dataset):
     def __init__(self, data, mode):
-        path = '../data/'
+        path = '/data3/whr/zst/uav/smart/data/'
         mask = torch.load(path+f'mask/{mode}_mask.pt')
         self.data = data[mask]
         self.labels = torch.load(path+'labels.pt')[mask]
@@ -178,7 +183,7 @@ def train(args):
     print("Starting loading features...")
     with open('../data/video_feature.json') as f:
         data = json.load(f)
-    # data = torch.rand(13120, 10, 1280)
+    # data = torch.rand(13320, 10, 1280)
     print('Finished loading.')
     train_dataset = MyDataSet(data, mode='train')
     val_dataset = MyDataSet(data, mode='valid')
@@ -194,15 +199,19 @@ def train(args):
         global_frame_selector.parameters(), lr=args.lr)
 
     best_valid_loss = float('inf')
-    best_model_path = './data/best_global_frame_selector.pt'
+    best_model_path = '/data3/whr/zst/uav/smart/data/best_global_frame_selector.pt'
 
     print("Starting Training.")
     for epoch in range(args.epochs):
         global_frame_selector.train()
+        
+        y_true = []
+        y_pred = []
         total_loss = 0
+        
         for train_feature, train_labels in tqdm(train_loader):
-            train_feature, train_labels = train_feature.to(
-                device), train_labels.to(device)
+            train_feature = train_feature.to(device)
+            train_labels = repeat(train_labels, 'b -> b s', s=train_feature.size(1)).to(device)
             out = global_frame_selector(train_feature)
 
             loss = loss_func(out, train_labels)
@@ -230,11 +239,16 @@ def train(args):
 
         # Validation phase
         global_frame_selector.eval()
-        valid_loss = 0
+        
+        y_true = []
+        y_pred = []
+        total_loss = 0
+        
         with torch.no_grad():
             for valid_feature, valid_labels in tqdm(val_loader):
-                valid_feature, valid_labels = valid_feature.to(
-                    device), valid_labels.to(device)
+                valid_feature = valid_feature.to(device)
+                valid_labels = repeat(
+                    train_labels, 'b -> b s', s=valid_feature.size(1)).to(device)
                 out = global_frame_selector(valid_feature)
 
                 total_loss += loss.item()
@@ -256,8 +270,8 @@ def train(args):
             f"Epoch {epoch+1}: valid loss: {avg_loss:.4f}, f1: {f1:.4f}, auc: {auc:.4f}, acc: {acc:.4f}")
 
         # Save the best model
-        if valid_loss < best_valid_loss:
-            best_valid_loss = valid_loss
+        if avg_loss < best_valid_loss:
+            best_valid_loss = avg_loss
             torch.save(global_frame_selector.state_dict(), best_model_path)
             print(f'Best model saved with validation loss: {best_valid_loss}')
 
@@ -266,7 +280,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=101)
     parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--data-path', type=str,
                         default="./data/ucf_101_frame")
