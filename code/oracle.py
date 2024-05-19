@@ -566,11 +566,11 @@ def main(args):
 
 def score(args):
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(args)
 
     train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(
-        args.data_path)
+        args.data_path,val_rate=0.2)
 
     img_size = {"s": [300, 384],  # train_size, val_size
                 "m": [384, 480],
@@ -583,12 +583,18 @@ def score(args):
                                          transforms.ToTensor(),
                                          transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
 
-    # 实例化验证数据集
+    train_dataset = MyDataSet(images_path=train_images_path,
+                            images_class=train_images_label,
+                            transform=data_transform)
     val_dataset = MyDataSet(images_path=val_images_path,
                             images_class=val_images_label,
                             transform=data_transform)
 
     val_num = len(val_dataset)
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+                                             batch_size=args.batch_size,
+                                             shuffle=False,
+                                             num_workers=0)
 
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=args.batch_size,
@@ -604,6 +610,20 @@ def score(args):
     scores = []
     net.eval()
     with torch.no_grad():
+        bar = tqdm(train_loader)
+        for data in bar:
+            images, labels = data
+            outputs = sigmoid(net(images.to(device)))
+            predict_y = torch.max(outputs, dim=1)[1]
+            acc += torch.eq(predict_y, labels.to(device)).sum().item()
+            i = 0
+            for pre in outputs:
+                score = pre[labels[i]]
+                scores.append(round(score.item(), 5))  # 保留小数点后5位
+                i += 1
+        accurate = acc / val_num
+    print('accuracy on these frames: %.4f' % (accurate))
+    with torch.no_grad():
         bar = tqdm(val_loader)
         for data in bar:
             images, labels = data
@@ -617,14 +637,15 @@ def score(args):
                 i += 1
         accurate = acc / val_num
     print('accuracy on these frames: %.4f' % (accurate))
-
+    scores = np.array(scores)
+    np.save('data/scores.npy',scores)
     # scroces是一维的，因为没有打乱顺序，所以顺序上是一一对应的
     return scores
 
 
 if __name__ == '__main__':
     # 是否预训练
-    pretrain = True
+    pretrain = False
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=101)
     parser.add_argument('--epochs', type=int, default=5)
@@ -638,10 +659,10 @@ if __name__ == '__main__':
                         default="./data/ucf_101_frame")
     # download model weights
     # 链接: https://pan.baidu.com/s/1uZX36rvrfEss-JGj4yfzbQ  密码: 5gu1
-    parser.add_argument('--weights', type=str, default='./saved_model/torch_efficientnetv2/pre_efficientnetv2-s.pth',
+    parser.add_argument('--weights', type=str, default='saved_model/single_frame_selection_video_em.pth',
                         help='initial weights path')
     parser.add_argument('--freeze-layers', type=bool, default=True)
-    parser.add_argument('--device', default='cuda:7',
+    parser.add_argument('--device', default='cuda:6',
                         help='device id (i.e. 0 or 0,1 or cpu)')
     opt = parser.parse_args(args=[])
 
